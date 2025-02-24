@@ -26,23 +26,35 @@ def extract_price(price_text):
         print(f"Error: {e}")
         return 0  # 예외가 발생할 경우 기본값
 
+
 def extract_id(url):
     """
     주어진 URL에서 ID를 추출하는 함수.
+    'brands/{id}', 'products/{id}', 'categories/{id}', 'categories/item/{id}' 경로가 있는 URL을 처리.
 
     Parameters:
         url (str): URL
 
     Returns:
-        str: ID
+        str: ID 또는 None (ID가 없는 경우)
     """
+    match = re.search(r'(?:brands|products|categories(?:/item)?)/(\d+)', url)
 
-    match = re.search(r'products/(\d+)', url)
     if match:
-        return match.group(1)
-    return None  # 상품ID가 없는 경우 None 반환
+        return match.group(1)  # ID 반환
+
+    return None  # ID가 없는 경우 None 반환
+
+
 
 if __name__ == "__main__":
-    ex = '税込価格：1枚・290円 / 4枚・1,090円'
-    return_ex = extract_price(ex)
-    print(return_ex)
+    price = '税込価格：1枚・290円 / 4枚・1,090円'
+    return_price = extract_price(price)
+    category =  'https://www.cosme.net/categories/item/1007/'
+    return_category = extract_id(category)
+
+    print(price)
+    print(return_price)
+
+    print(category)
+    print(return_category)
