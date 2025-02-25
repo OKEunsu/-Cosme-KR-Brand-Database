@@ -1,141 +1,191 @@
 import random
-from datetime import datetime
-import requests
-from bs4 import BeautifulSoup
-import json
-from src.processing import extract_price_info, extract_id
 import time
 import re
+import requests
+from datetime import datetime
+from bs4 import BeautifulSoup
+import json
 import pandas as pd
+from sqlalchemy import create_engine
+from src.processing import parse_price, extract_id
+import sqlite3
 
-# JSON 파일 읽기
-with open("weburl.json", "r", encoding="utf-8") as f:
-    cosme_url = json.load(f)  # 파일을 Python 딕셔너리로 변환
-
-# 현재 날짜 및 시간
-now = datetime.now()  # 현재 날짜 및 시간
-date = now.date()     # 현재 날짜 (년-월-일)
-
-# 크롬 브라우저의 User-Agent 설정
-headers = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-}
-
-brand_names = []
-brand_links = []
-# brand_id -> brand_links 변환
-
-product_names = []
-product_links = []
-# product_id -> product_links 변환
-
-category_links = []
-category_names = []
-category_ids = []
-
-price_list = []
-rating_list = []
-review_list = []
-onsale_date = []
-
-
-for num in range(1, 6):
-    url = cosme_url["ranking"] + f"?page={num}"
-
-    # HTTP 요청 보내기 (User-Agent 포함)
+# 웹페이지에서 데이터를 추출하는 함수
+def extract_data_from_page(url, headers):
     response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"Failed to retrieve {url}")
+        return None
 
-    time.sleep(random.uniform(3,5))
-
-    # BeautifulSoup으로 HTML 파싱
+    time.sleep(random.uniform(3, 5))  # 시간 간격 두기
     soup = BeautifulSoup(response.text, 'html.parser')
-
-    # 브랜드
+    return soup
+# 브랜드 정보 추출
+def extract_brands(soup):
+    brand_names, brand_links = [], []
     brands = soup.find_all("span", class_="brand")
-
     for span in brands:
-        a_tag = span.find("a")  # <span> 안의 <a> 태그 추출
+        a_tag = span.find("a")
         if a_tag:
             brand_names.append(a_tag.text)
             brand_links.append(a_tag.get("href"))
-
-    # 제품
+    return brand_names, brand_links
+# 제품 정보 추출
+def extract_products(soup):
+    product_names, product_links = [], []
     items = soup.find_all("h4", class_="item")
     for span in items:
         a_tag = span.find("a")
         if a_tag:
             product_names.append(a_tag.text)
             product_links.append(a_tag.get("href"))
-
-    # 카테고리 정보 추출
+    return product_names, product_links
+# 카테고리 정보 추출
+def extract_categories(soup):
+    category_ids = []
     categorys = soup.find_all('span', class_='category')
     for category in categorys:
         links = category.find_all('a')
-        category_names_in_product = []  # 한 제품에 대해 여러 카테고리를 담을 리스트
-        category_links_in_product = []
-        for link in links:
-            category_names_in_product.append(link.text)
-            category_links_in_product.append(link['href'])
-
-        # 한 제품에 대한 카테고리들을 리스트에 추가
-        category_names.append(category_names_in_product)
-        category_links.append(category_links_in_product)
         category_ids.append([extract_id(link['href']) for link in links])
-
-    # 평점
+    return category_ids
+# 리뷰 수 추출
+def extract_reviews(soup):
+    review_list = []
+    review_tags = soup.find_all("a", class_="count")
+    for review_tag in review_tags:
+        review_count = review_tag.get_text().strip()
+        review_list.append(review_count)
+    return review_list
+# 평점 정보 추출
+def extract_ratings(soup):
+    rating_list = []
     rating_point_tags = soup.find_all("div", class_="rating-point clearfix")
     for rating_point_tag in rating_point_tags:
         rating_tag = rating_point_tag.find("p", class_=["rating", "reviewer-average", "arg-5", "arg-6"])
         if rating_tag:
-            rating = rating_tag.get_text().strip()  # 평점 텍스트 추출
+            rating = rating_tag.get_text().strip()
             rating_list.append(float(rating))
-
-    # 리뷰 수
-    review_tags = soup.find_all("a", class_="count")
-    for review_tag in review_tags:
-        review_count = review_tag.get_text().strip()  # 리뷰 수 텍스트
-        review_list.append(review_count)
-
-    # 발매일
+    return rating_list
+# 발매일 추출
+def extract_onsale_dates(soup):
+    onsale_date = []
     release_date_tags = soup.find_all("p", class_="onsale")
     for release_date in release_date_tags:
         if release_date:
             onsale_date.append(release_date.text[6:])
+    return onsale_date
+# 가격 추출
+def extract_prices(soup):
+    price_list = []
+    price_tags = soup.find_all("p", class_="price")  # 여러 개의 태그 반환
+    for tag in price_tags:
+        price_list.append(tag.text)  # 텍스트를 가져오고 공백 제거
+    return price_list
+# 메인 크롤링
+def crawling(num):
+    soup = extract_data_from_page(cosme_url['ranking'] + f'?page={num}', headers)
+    brand_names, brand_links = extract_brands(soup)
+    brand_id = [extract_id(x) for x in brand_links]
+    product_names, product_links = extract_products(soup)
+    product_id = [extract_id(x) for x in product_links]
+    category_id = extract_categories(soup)
+    review_list = extract_reviews(soup)
+    review_list_int = [int(re.search(r'\d+', review).group()) for review in review_list]
+    rating_list = extract_ratings(soup)
+    onsale_date = extract_onsale_dates(soup)
+    price_list = extract_prices(soup)
+    price_list_dict = [parse_price(x) for x in price_list]
 
-    # 가격
-    price_tags = soup.find_all("p", class_="price")
-    price_list.extend(price_tags)
+    brand_id_list.extend(brand_id)
+    brand_names_list.extend(brand_names)
+    brand_links_list.extend(brand_links)
+    product_id_list.extend(product_id)
+    product_names_list.extend(product_names)
+    product_links_list.extend(product_links)
+    category_id_list.extend(category_id)
+    review_list_int_list.extend(review_list_int)
+    rating_list_list.extend(rating_list)
+    onsale_date_list.extend(onsale_date)
+    price_list_dict_list.extend(price_list_dict)
 
+# JSON 파일 읽기
+with open("weburl.json", "r", encoding="utf-8") as f:
+    cosme_url = json.load(f)  # 파일을 Python 딕셔너리로 변환
 
-review_list_int = [int(re.search(r'\d+', review).group()) for review in review_list]
-brand_id = [extract_id(link) for link in brand_links]
-product_id = [extract_id(link) for link in product_links]
-price_list_dict = extract_price_info(price_list)
-
-products_data = {
-    "product_id": product_id,
-    "brand_id": brand_id,
-    "category_id": category_ids,
-    "rating": rating_list,
-    "review_cnt": review_list_int,
-    "price": [str(price_dict) for price_dict in price_list_dict],
-    "release_info": onsale_date,
-    "url": product_links
+# 크롬 브라우저의 User-Agent 설정
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 }
-categories_data = {
-    "category_id": category_ids,
-    "category_name": category_names
-}
-brands_data = {
-    "brand_id": brand_id,
-    "brand_name": brand_names,
-    "brand_url": brand_links
-}
-# pandas 데이터프레임으로 변환
-products_df = pd.DataFrame(products_data)
-categories_df = pd.DataFrame(categories_data)
-brands_df = pd.DataFrame(brands_data)
 
-products_df.to_csv("product.csv", index=False, encoding = 'utf-8-sig')
-categories_df.to_csv("categories.csv", index=False, encoding = 'utf-8-sig')
-brands_df.to_csv("brands.csv", index=False, encoding = 'utf-8-sig')
+# 현재 날짜 및 시간
+now = datetime.now()  # 현재 날짜 및 시간
+date = now.date()     # 현재 날짜 (년-월-일)
+
+if __name__ == '__main__':
+    brand_id_list = []
+    brand_names_list = []
+    brand_links_list = []
+    product_id_list = []
+    product_names_list = []
+    product_links_list = []
+    category_id_list = []
+    review_list_int_list = []
+    rating_list_list = []
+    onsale_date_list = []
+    price_list_dict_list = []
+
+    for page in range(1, 6):
+        crawling(page)
+
+    rank_list = [x for x in range(1, len(product_id_list)+1)]
+
+    brand_db = pd.DataFrame({
+        'brand_id' : brand_id_list,
+        'brand_name' : brand_names_list,
+        'brand_url' : brand_links_list
+    })
+
+    rank_db = pd.DataFrame({
+        'product_id' : product_id_list,
+        'ranking' : rank_list,
+        'date': [date] * len(product_id_list)
+    })
+
+    product_db = pd.DataFrame({
+        'product_id' : product_id_list,
+        'brand_id' : brand_id_list,
+        'category_id' : category_id_list,
+        'rating' : rating_list_list,
+        'review_cnt' : review_list_int_list,
+        'price' : price_list_dict_list,
+        'update_date' : [date] * len(product_id_list),
+        'url' : product_links_list
+    })
+    # category_id와 price를 모두 문자열로 변환
+    product_db['category_id'] = product_db['category_id'].apply(str)
+    product_db['price'] = product_db['price'].apply(str)
+
+    # SQLite 데이터베이스 연결
+    conn = sqlite3.connect(r'C:\Users\WD\PycharmProjects\Cosme-KR-Brand-Database\data\cosme.db')
+    cursor = conn.cursor()
+
+    # 각 데이터프레임을 테이블에 추가 (append로 추가)
+    rank_db.to_sql('rank', conn, if_exists='append', index=False)
+
+    for index, row in brand_db.iterrows():
+        cursor.execute('''
+            INSERT OR IGNORE INTO brand (brand_id, brand_name, brand_url)
+            VALUES (?, ?, ?)
+        ''', (row['brand_id'], row['brand_name'], row['brand_url']))
+
+    for index, row in product_db.iterrows():
+
+        cursor.execute('''
+            INSERT OR REPLACE INTO product
+            (product_id, brand_id, category_id, rating, review_cnt, price, update_date, url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (row['product_id'], row['brand_id'], row['category_id'], row['rating'], row['review_cnt'], row['price'],
+              row['update_date'], row['url']))
+
+    conn.commit()  # 변경사항 저장
+    conn.close()  # 연결 종료

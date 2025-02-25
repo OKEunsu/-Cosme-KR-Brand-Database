@@ -16,29 +16,27 @@ def extract_id(url):
         return match.group(1)  # ID 반환
     return None  # ID가 없는 경우 None 반환
 
-def extract_price_info(price_tags):
-    price_list = []  # 변환된 가격 정보를 저장할 리스트
+def parse_price(price_str):
+    price_dict = {}
+    price_str = price_str.replace("税込価格：", "").replace("\xa0", " ").strip()  # "税込価格：" & 비브레이킹 스페이스 제거
 
-    for tag in price_tags:
-        price_text = tag.text.replace("税込価格：", "").strip()  # "税込価格：" 제거 후 텍스트 추출
-        price_items = price_text.split(" / ")  # 여러 개의 가격이 있으면 분리
+    # `/`로 여러 가격 옵션을 나누기
+    price_options = price_str.split(" / ")
 
-        price_dict = {}  # 한 제품의 가격 정보를 저장할 딕셔너리
+    for option in price_options:
+        # "단위・가격円" 패턴 찾기
+        match = re.match(r'(.+?)・([\d,]+)円', option)
+        if match:
+            size, price = match.groups()
+            price_dict[size] = int(price.replace(",", ""))  # 숫자 변환
 
-        for item in price_items:
-            match = re.match(r"(.+?)・([\d,]+円)", item)  # "단위・가격" 패턴 추출
-            if match:
-                unit = match.group(1).strip()  # 단위 (예: "5.3g", "1枚", "4枚")
-                price = match.group(2).strip()  # 가격 (예: "290円", "1,760円")
-                price_dict[unit] = price  # 딕셔너리에 저장
+    # 단순 가격 패턴 처리 (예: "1,980円" → "単品")
+    if not price_dict:
+        simple_price_match = re.search(r'([\d,]+)円$', price_str)
+        if simple_price_match:
+            price_dict["単品"] = int(simple_price_match.group(1).replace(",", ""))
 
-        if price_dict:  # 비어 있지 않은 경우만 추가
-            price_list.append(price_dict)
-        else:
-            price_list.append(price_text)  # 가격 정보가 없는 경우 그대로 추가
-
-    return price_list
-
+    return price_dict
 if __name__ == "__main__":
     # 테스트 데이터
     price_tags = [
