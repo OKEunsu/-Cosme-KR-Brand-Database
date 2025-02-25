@@ -12,34 +12,46 @@ import sqlite3
 
 # 웹페이지에서 데이터를 추출하는 함수
 def extract_data_from_page(url, headers):
-    response = requests.get(url, headers=headers)
-    if response.status_code != 200:
-        print(f"Failed to retrieve {url}")
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code != 200:
+            logging.error(f"Failed to retrieve {url} with status code {response.status_code}")
+            return None
+        logging.info(f"Successfully retrieved {url}")
+        time.sleep(random.uniform(3, 5))  # 시간 간격 두기
+        soup = BeautifulSoup(response.text, 'html.parser')
+        return soup
+    except requests.RequestException as e:
+        logging.error(f"Request error for {url}: {str(e)}")
         return None
 
-    time.sleep(random.uniform(3, 5))  # 시간 간격 두기
-    soup = BeautifulSoup(response.text, 'html.parser')
-    return soup
 # 브랜드 정보 추출
 def extract_brands(soup):
     brand_names, brand_links = [], []
     brands = soup.find_all("span", class_="brand")
+    if not brands:
+        logging.warning("No brands found on the page")
     for span in brands:
         a_tag = span.find("a")
         if a_tag:
             brand_names.append(a_tag.text)
             brand_links.append(a_tag.get("href"))
+    logging.info(f"Found {len(brand_names)} brands")
     return brand_names, brand_links
-# 제품 정보 추출
+
 def extract_products(soup):
     product_names, product_links = [], []
     items = soup.find_all("h4", class_="item")
+    if not items:
+        logging.warning("No products found on the page")
     for span in items:
         a_tag = span.find("a")
         if a_tag:
             product_names.append(a_tag.text)
             product_links.append(a_tag.get("href"))
+    logging.info(f"Found {len(product_names)} products")
     return product_names, product_links
+
 # 카테고리 정보 추출
 def extract_categories(soup):
     category_ids = []
@@ -83,6 +95,7 @@ def extract_prices(soup):
     return price_list
 # 메인 크롤링
 def crawling(num):
+    logging.info(f"Starting crawling page {num}")
     soup = extract_data_from_page(cosme_url['ranking'] + f'?page={num}', headers)
     brand_names, brand_links = extract_brands(soup)
     brand_id = [extract_id(x) for x in brand_links]
@@ -107,6 +120,7 @@ def crawling(num):
     rating_list_list.extend(rating_list)
     onsale_date_list.extend(onsale_date)
     price_list_dict_list.extend(price_list_dict)
+    logging.info(f"Finished crawling page {num}")
 
 # JSON 파일 읽기
 with open("weburl.json", "r", encoding="utf-8") as f:
@@ -122,6 +136,15 @@ now = datetime.now()  # 현재 날짜 및 시간
 date = now.date()     # 현재 날짜 (년-월-일)
 
 if __name__ == '__main__':
+    import logging
+
+    # 로그 파일 및 설정
+    logging.basicConfig(
+        filename='cosme_crawler.log',  # 로그를 저장할 파일 경로
+        level=logging.INFO,  # 로그 레벨 설정: INFO 이상 기록
+        format='%(asctime)s - %(levelname)s - %(message)s'  # 로그 형식
+    )
+
     brand_id_list = []
     brand_names_list = []
     brand_links_list = []
@@ -166,26 +189,30 @@ if __name__ == '__main__':
     product_db['price'] = product_db['price'].apply(str)
 
     # SQLite 데이터베이스 연결
+    logging.info(f"Inserting data into database...")
     conn = sqlite3.connect(r'C:\Users\WD\PycharmProjects\Cosme-KR-Brand-Database\data\cosme.db')
     cursor = conn.cursor()
 
     # 각 데이터프레임을 테이블에 추가 (append로 추가)
     rank_db.to_sql('rank', conn, if_exists='append', index=False)
+    logging.info("Data successfully inserted into the rank_db.")
 
     for index, row in brand_db.iterrows():
         cursor.execute('''
             INSERT OR IGNORE INTO brand (brand_id, brand_name, brand_url)
             VALUES (?, ?, ?)
         ''', (row['brand_id'], row['brand_name'], row['brand_url']))
+    logging.info("Data successfully inserted into the brand_db.")
 
     for index, row in product_db.iterrows():
-
         cursor.execute('''
             INSERT OR REPLACE INTO product
             (product_id, brand_id, category_id, rating, review_cnt, price, update_date, url)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         ''', (row['product_id'], row['brand_id'], row['category_id'], row['rating'], row['review_cnt'], row['price'],
               row['update_date'], row['url']))
+    logging.info("Data successfully inserted into the product_db.")
 
     conn.commit()  # 변경사항 저장
     conn.close()  # 연결 종료
+    logging.info("Database connection closed.")
