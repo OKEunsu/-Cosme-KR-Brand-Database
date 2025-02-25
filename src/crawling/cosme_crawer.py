@@ -9,6 +9,14 @@ import pandas as pd
 from sqlalchemy import create_engine
 from src.processing import parse_price, extract_id
 import sqlite3
+import logging
+
+# 로그 파일 및 설정
+logging.basicConfig(
+    filename='cosme_crawler.log',  # 로그를 저장할 파일 경로
+    level=logging.INFO,  # 로그 레벨 설정: INFO 이상 기록
+    format='%(asctime)s - %(levelname)s - %(message)s'  # 로그 형식
+)
 
 # 웹페이지에서 데이터를 추출하는 함수
 def extract_data_from_page(url, headers):
@@ -24,7 +32,6 @@ def extract_data_from_page(url, headers):
     except requests.RequestException as e:
         logging.error(f"Request error for {url}: {str(e)}")
         return None
-
 # 브랜드 정보 추출
 def extract_brands(soup):
     brand_names, brand_links = [], []
@@ -38,7 +45,6 @@ def extract_brands(soup):
             brand_links.append(a_tag.get("href"))
     logging.info(f"Found {len(brand_names)} brands")
     return brand_names, brand_links
-
 def extract_products(soup):
     product_names, product_links = [], []
     items = soup.find_all("h4", class_="item")
@@ -51,7 +57,6 @@ def extract_products(soup):
             product_links.append(a_tag.get("href"))
     logging.info(f"Found {len(product_names)} products")
     return product_names, product_links
-
 # 카테고리 정보 추출
 def extract_categories(soup):
     category_ids = []
@@ -136,14 +141,7 @@ now = datetime.now()  # 현재 날짜 및 시간
 date = now.date()     # 현재 날짜 (년-월-일)
 
 if __name__ == '__main__':
-    import logging
 
-    # 로그 파일 및 설정
-    logging.basicConfig(
-        filename='cosme_crawler.log',  # 로그를 저장할 파일 경로
-        level=logging.INFO,  # 로그 레벨 설정: INFO 이상 기록
-        format='%(asctime)s - %(levelname)s - %(message)s'  # 로그 형식
-    )
 
     brand_id_list = []
     brand_names_list = []
