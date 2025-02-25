@@ -141,8 +141,6 @@ now = datetime.now()  # 현재 날짜 및 시간
 date = now.date()     # 현재 날짜 (년-월-일)
 
 if __name__ == '__main__':
-
-
     brand_id_list = []
     brand_names_list = []
     brand_links_list = []
