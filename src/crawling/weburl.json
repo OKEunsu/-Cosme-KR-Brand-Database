@@ -1,4 +1,6 @@
 {
-    "ranking": "https://www.cosme.net/categories/pickup/1039/ranking/"
+    "ranking": "https://www.cosme.net/categories/pickup/1039/ranking/",
+    "product": "https://www.cosme.net/products/{product_id}/",
+    "review" : "https://www.cosme.net/products"
 }
 
